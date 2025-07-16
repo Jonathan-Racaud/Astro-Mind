@@ -1,0 +1,9 @@
+bin
+dataset
+include
+lib
+lib64
+old
+output
+CACHEDIR.TAG
+pyvenv.cfg
