@@ -53,6 +53,8 @@ def prepare_engineering_json():
         )
 
 def extract_ships_data():
+    ships_data = []
+
     for filename in os.listdir(SHIPS_DATA_DIR):
         file_path = os.path.join(SHIPS_DATA_DIR, filename)
 
@@ -63,15 +65,15 @@ def extract_ships_data():
         try:
             with open(file_path, "r", encoding="utf-8") as file:
                 raw_html_doc = file.read()
-                ship_data = extract_ship_data(raw_html_doc)
-
-                print(json.dumps(asdict(ship_data), indent=2))
-
+                ships_data.append(extract_ship_data(raw_html_doc))
         except Exception as e:
             print(f"[!] Failed to extract data for {filename}: {e}")
 
+    return ships_data
+
 def extract():
-    extract_ships_data()
+    ships_data = extract_ships_data()
+    print(ships_data)
 
 def main():
     extract()

@@ -1,7 +1,8 @@
-from lxml import html
+import re
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, List
+from bs4 import BeautifulSoup
 
 NotDefined = "N/A"
 
@@ -83,97 +84,101 @@ class ExtractedShipData:
     infobox: Optional[ExtractedShipInfoBox] = None
     outfitting: Optional[ExtractedShipOutfitting] = None
 
-def has_aside_section(tree, name: str) -> bool:
-    return bool(tree.xpath(f"//aside//section/h2[contains(text(), '{name}')]"))
+def has_aside_section(soup, name: str) -> bool:
+    return bool(soup.select_one(f"aside section h2:-soup-contains('{name}')"))
 
-def get_aside_value(tree, data_source: str) -> str:
-    value = tree.xpath(f"//aside//div[@data-source='{data_source}']//div[@class='pi-data-value pi-font']//text()")
-    return value[0] if value else NotDefined
+def get_aside_value(soup, data_source: str) -> str:
+    div = soup.select_one(f"aside div[data-source='{data_source}'] div.pi-data-value.pi-font")
+    if div:
+        text = div.get_text()
+        return text if text else NotDefined
+    return NotDefined
 
-def get_value_for_label(tree, label):
-    val = tree.xpath(f"//aside//h3[contains(@class, 'pi-data-label') and contains(text(),'{label}')]/following-sibling::div[contains(@class, 'pi-data-value')]/text()")
+def get_value_for_label(soup, label):
+    # Find h3 label in aside, then get next sibling div with class pi-data-value
+    for h3 in soup.select("aside h3.pi-data-label"):
+        if label in h3.get_text():
+            value_divs = []
+            sib = h3.find_next_sibling()
+            while sib and 'pi-data-value' in sib.get('class', []):
+                value_divs.append(sib.get_text())
+                sib = sib.find_next_sibling()
+            if not value_divs:
+                return NotDefined
+            text = "\n".join([v.replace("×", "x") for v in value_divs if v])
+            return text
+    return NotDefined
 
-    text = ""
-    if len(val) == 1:
-        text = val[0].strip() if val else NotDefined
-    else:
-        text = "\n".join([v.strip() for v in val if v.strip()]) if val else NotDefined
+def has_section(soup, name: str) -> bool:
+    return bool(soup.select_one(f"h2 span:-soup-contains('{name}')"))
 
-    text = text.replace("×", "x")
-    
-    return text
-
-def has_section(tree, name: str) -> bool:
-    return bool(tree.xpath(f"//h2[span[contains(text(), '{name}')]]"))
-
-def extract_infobox_overview(tree) -> ExtractedShipInfoBoxOverview:
+def extract_infobox_overview(soup) -> ExtractedShipInfoBoxOverview:
     overview = ExtractedShipInfoBoxOverview()
-
-    overview.manufacturer = get_aside_value(tree, "manufacturer")
-    overview.years_produced = get_aside_value(tree, "yearsproduced")
-    overview.ship_type = get_aside_value(tree, "type")
-    overview.cost = get_aside_value(tree, "cost")
-    overview.insurance = get_aside_value(tree, "insurance")
-    overview.expansion = get_aside_value(tree, "expansion")
-    
+    overview.manufacturer = get_aside_value(soup, "manufacturer")
+    overview.years_produced = get_aside_value(soup, "yearsproduced")
+    overview.ship_type = get_aside_value(soup, "type")
+    overview.cost = get_aside_value(soup, "cost")
+    overview.insurance = get_aside_value(soup, "insurance")
+    overview.expansion = get_aside_value(soup, "expansion")
     return overview
 
-def extract_infobox_specifications(tree) -> ExtractedShipInfoBoxSpecifications:
+def extract_infobox_specifications(soup) -> ExtractedShipInfoBoxSpecifications:
     specs = ExtractedShipInfoBoxSpecifications()
-    
-    specs.landing_pad_size = get_aside_value(tree, "landingpad")
-    specs.dimensions = get_aside_value(tree, "dimensions")
-    specs.pilot_seats = get_aside_value(tree, "seats")
-    specs.multicrew = get_aside_value(tree, "multicrew")
-    specs.fighter_hangar = get_aside_value(tree, "fighterhangar")
-    specs.hull_mass = get_aside_value(tree, "hullmass")
-    specs.mass_lock_factor = get_aside_value(tree, "masslock")
-    specs.armour = get_aside_value(tree, "armour")
-    specs.armour_hardness = get_aside_value(tree, "armourhardness")
-    specs.shields = get_aside_value(tree, "shields")
-    specs.heat_capacity = get_aside_value(tree, "heatcapacity")
-    specs.fuel_capacity = get_aside_value(tree, "fuelcapacity")
-    specs.manoeuvrability = get_aside_value(tree, "manoeuvrability")
-    specs.top_speed = get_aside_value(tree, "topspeed")
-    specs.boost_speed = get_aside_value(tree, "boostspeed")
-    specs.unladen_jump_range = get_aside_value(tree, "unladen")
-    specs.cargo_capacity = get_aside_value(tree, "cargocapacity")
-    specs.top_speed = get_value_for_label(tree, "Top Speed")
-    specs.boost_speed = get_value_for_label(tree, "Boost Speed")
-    specs.unladen_jump_range = get_value_for_label(tree, "Unladen Jump Range")
-    specs.cargo_capacity = get_value_for_label(tree, "Cargo Capacity")
-    
+    specs.landing_pad_size = get_aside_value(soup, "landingpad")
+    specs.dimensions = get_aside_value(soup, "dimensions")
+    specs.pilot_seats = get_aside_value(soup, "seats")
+    specs.multicrew = get_aside_value(soup, "multicrew")
+    specs.fighter_hangar = get_aside_value(soup, "fighterhangar")
+    specs.hull_mass = get_aside_value(soup, "hullmass")
+    specs.mass_lock_factor = get_aside_value(soup, "masslock")
+    specs.armour = get_aside_value(soup, "armour")
+    specs.armour_hardness = get_aside_value(soup, "armourhardness")
+    specs.shields = get_aside_value(soup, "shields")
+    specs.heat_capacity = get_aside_value(soup, "heatcapacity")
+    specs.fuel_capacity = get_aside_value(soup, "fuelcapacity")
+    specs.manoeuvrability = get_aside_value(soup, "manoeuvrability")
+    specs.top_speed = get_aside_value(soup, "topspeed")
+    specs.boost_speed = get_aside_value(soup, "boostspeed")
+    specs.unladen_jump_range = get_aside_value(soup, "unladen")
+    specs.cargo_capacity = get_aside_value(soup, "cargocapacity")
+    # Try to get values by label as well (may overwrite above)
+    specs.top_speed = get_value_for_label(soup, "Top Speed")
+    specs.boost_speed = get_value_for_label(soup, "Boost Speed")
+    specs.unladen_jump_range = get_value_for_label(soup, "Unladen Jump Range")
+    specs.cargo_capacity = get_value_for_label(soup, "Cargo Capacity")
     return specs
 
-def extract_infobox_outfitting(tree) -> ExtractedShipInfoBoxOutfitting:
+def extract_infobox_outfitting(soup) -> ExtractedShipInfoBoxOutfitting:
     outfitting = ExtractedShipInfoBoxOutfitting()
-    
-    outfitting.hardpoints = get_value_for_label(tree, "Hardpoints")
-    outfitting.internal_compartments = get_value_for_label(tree, "Internal Compartments")
-    outfitting.reserved_compartments = get_value_for_label(tree, "Reserved Compartments")
-    
+    outfitting.hardpoints = get_value_for_label(soup, "Hardpoints")
+    outfitting.internal_compartments = get_value_for_label(soup, "Internal Compartments")
+    outfitting.reserved_compartments = get_value_for_label(soup, "Reserved Compartments")
     return outfitting
 
-def extract_infobox_hardpoints(tree) -> ExtractedShipInfoBoxHardpoints:
+def extract_infobox_hardpoints(soup) -> ExtractedShipInfoBoxHardpoints:
     hardpoints = ExtractedShipInfoBoxHardpoints()
-    
-    hardpoints.utility_mount = get_value_for_label(tree, "Utility Mount")
-    hardpoints.weapon_mounts = get_value_for_label(tree, "Weapon Mounts")
-    
+    hardpoints.utility_mount = get_value_for_label(soup, "Utility Mount")
+    hardpoints.weapon_mounts = get_value_for_label(soup, "Weapon Mounts")
     return hardpoints
 
-def extract_infobox(tree) -> ExtractedShipInfoBox:
+def extract_infobox(soup) -> ExtractedShipInfoBox:
     return ExtractedShipInfoBox(
-        overview=extract_infobox_overview(tree),
-        specifications=extract_infobox_specifications(tree),
-        outfitting=extract_infobox_outfitting(tree) if has_aside_section(tree, "Outfitting") else None,
-        hardpoints=extract_infobox_hardpoints(tree) if has_aside_section(tree, "Hardpoints") else None
+        overview=extract_infobox_overview(soup),
+        specifications=extract_infobox_specifications(soup),
+        outfitting=extract_infobox_outfitting(soup) if has_aside_section(soup, "Outfitting") else None,
+        hardpoints=extract_infobox_hardpoints(soup) if has_aside_section(soup, "Hardpoints") else None
     )
 
 def extract_outfitting_module(row) -> ExtractedShipOutfittingModule:
-    tds = row.xpath(".//td/a/text() | .//td/text()")    
-    tds = [td.strip() for td in tds if td.strip()]
-
+    tds = []
+    for td in row.find_all("td"):
+        # Prefer <a> text if present, else td text
+        if td.a:
+            tds.append(td.a.get_text(strip=True))
+        else:
+            tds.append(td.get_text(strip=True))
+    tds = [td for td in tds if td]
+    
     return ExtractedShipOutfittingModule(
         default_system=tds[1] if len(tds) <= 5 else f"{tds[1]} {tds[2]}",
         default_rating=tds[2] if len(tds) <= 5 else tds[3],
@@ -181,55 +186,86 @@ def extract_outfitting_module(row) -> ExtractedShipOutfittingModule:
         max_class=tds[4] if len(tds) <= 5 else tds[5]
     )
 
-def extract_outfitting_list(tree, section_title) -> Optional[list]:
-    # Find table after a heading with section_title
-    heading = tree.xpath(f"//h3[span[contains(text(),'{section_title}')]]")
-    if not heading:
-        return None
-    table = heading[0].getnext()
-    if table is not None and table.tag == "table":
-        rows = table.xpath(".//tr[position()>1]")  # skip header
-        return [extract_outfitting_module(row) for row in rows]
+def extract_outfitting_list(soup, section_title) -> Optional[List[ExtractedShipOutfittingModule]]:
+    table = soup.select("table.article-table > tbody")[0]
+
+    modules = []
+
+    def extract_info(row):
+        tds = [td for td in row.find_all("td", recursive=False) if not td.has_attr("rowspan")]
+    
+        modules.append(ExtractedShipOutfittingModule(
+            default_system=tds[0].get_text(), # if len(tds) < 5 else tds[1],
+            default_rating=tds[1].get_text(), # if len(tds) < 5 else tds[2],
+            default_class=tds[2].get_text(), # if len(tds) < 5 else tds[3],
+            max_class=tds[3].get_text(), # if len(tds) < 5 else tds[4]
+        ))
+
+    for row in table.find_all("tr"):
+        td = row.find("td")
+
+        if td and td.has_attr("rowspan"):
+            td_label = td.get_text().rstrip()
+            
+            if td_label == section_title:
+                extract_info(row)
+                siblings = row.find_next_siblings("tr")[0:int(td["rowspan"]) - 1]
+
+                for sibling in siblings:
+                    extract_info(sibling)
+
+    return modules
+
+def extract_outfitting_single(soup, label) -> Optional[ExtractedShipOutfittingModule]:
+    # Find table row with td containing label
+    for table in soup.find_all("table"):
+        for row in table.find_all("tr"):
+            tds = row.find_all("td")
+            if any(label in td.get_text() for td in tds):
+                return extract_outfitting_module(row)
     return None
 
-def extract_outfitting_single(tree, label) -> Optional[ExtractedShipOutfittingModule]:
-    # Find row in outfitting table with label
-    row = tree.xpath(f"//table//tr[td[contains(text(),'{label}')]]") or tree.xpath(f"//table//tr[td[a[contains(text(),'{label}')]]]")
-    if row:
-        return extract_outfitting_module(row[0])
-    return None
-
-def extract_outfitting(tree) -> ExtractedShipOutfitting:
+def extract_outfitting(soup) -> ExtractedShipOutfitting:
     return ExtractedShipOutfitting(
-        small_hardpoint=extract_outfitting_list(tree, "Small Hardpoint"),
-        medium_hardpoint=extract_outfitting_list(tree, "Medium Hardpoint"),
-        large_hardpoint=extract_outfitting_list(tree, "Large Hardpoint"),
-        utility_mount=extract_outfitting_list(tree, "Utility Mount"),
-        bulkhead=extract_outfitting_single(tree, "Bulkhead"),
-        reactor_bay=extract_outfitting_single(tree, "Reactor Bay"),
-        thrusters_mounting=extract_outfitting_single(tree, "Thrusters Mounting"),
-        frame_shift_drive_housing=extract_outfitting_single(tree, "Frame Shift Drive Housing"),
-        environment_control=extract_outfitting_single(tree, "Environment Control"),
-        power_coupling=extract_outfitting_single(tree, "Power Coupling"),
-        sensor_suite=extract_outfitting_single(tree, "Sensor Suite"),
-        fuel_store=extract_outfitting_single(tree, "Fuel Store"),
-        internal_compartments=extract_outfitting_list(tree, "Internal Compartments")
+        small_hardpoint=extract_outfitting_list(soup, "Small Hardpoint"),
+        medium_hardpoint=extract_outfitting_list(soup, "Medium Hardpoint"),
+        large_hardpoint=extract_outfitting_list(soup, "Large Hardpoint"),
+        utility_mount=extract_outfitting_list(soup, "Utility Mount"),
+        bulkhead=extract_outfitting_single(soup, "Bulkhead"),
+        reactor_bay=extract_outfitting_single(soup, "Reactor Bay"),
+        thrusters_mounting=extract_outfitting_single(soup, "Thrusters Mounting"),
+        frame_shift_drive_housing=extract_outfitting_single(soup, "Frame Shift Drive Housing"),
+        environment_control=extract_outfitting_single(soup, "Environment Control"),
+        power_coupling=extract_outfitting_single(soup, "Power Coupling"),
+        sensor_suite=extract_outfitting_single(soup, "Sensor Suite"),
+        fuel_store=extract_outfitting_single(soup, "Fuel Store"),
+        internal_compartments=extract_outfitting_list(soup, "Internal Compartments")
     )
 
-def extract_overview_text(tree) -> str:
-    paras = tree.xpath("//div[contains(@class,'mw-parser-output')]/p[normalize-space(text())]")
-    return paras[0].text_content().strip() if paras else ""
+def extract_overview_text(soup) -> str:
+    overview_header = soup.select_one("h2 span:-soup-contains('Overview')").parent
 
-def extract_name(tree) -> str:
-    name_element = tree.xpath("//h1[@id='firstHeading']/span/text()")
-    return name_element[0].strip() if name_element else NotDefined
+    if not overview_header:
+        return NotDefined
+
+    paragraphs = overview_header.find_next_siblings("p")
+    text = "".join(p.get_text() for p in paragraphs)
+    
+    return text if text != "" else NotDefined
+
+def extract_name(soup) -> str:
+    name = soup.select("#firstHeading")[0].find("span")
+
+    if not name: return NotDefined
+    
+    return name.get_text(strip=True)
 
 def extract_ship_data(raw_html_doc: str) -> ExtractedShipData:
-    tree = html.fromstring(raw_html_doc)
-    name_text = extract_name(tree)
-    overview_text = extract_overview_text(tree)
-    infobox = extract_infobox(tree)
-    outfitting = extract_outfitting(tree) if has_section(tree, "Outfitting") else None
+    soup = BeautifulSoup(raw_html_doc, "html.parser")
+    name_text = extract_name(soup)
+    overview_text = extract_overview_text(soup)
+    infobox = extract_infobox(soup)
+    outfitting = extract_outfitting(soup) if has_section(soup, "Outfitting") else None
 
     return ExtractedShipData(
         name=name_text,
