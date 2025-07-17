@@ -7,3 +7,5 @@ old
 output
 CACHEDIR.TAG
 pyvenv.cfg
+
+src/__pycache__
