@@ -1,16 +1,24 @@
 import os
 import json
 import re
+import streamlit as st
 
 from dataclasses import asdict
 
 from langchain_mistralai import ChatMistralAI as Chat
-# from langchain_openai import ChatOpenAI as Chat
 from langchain.prompts import (
     SystemMessagePromptTemplate,
     HumanMessagePromptTemplate,
     ChatPromptTemplate
 )
+from langchain_community.document_loaders import JSONLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from sentence_transformers import SentenceTransformer
+from pymilvus import MilvusClient
+from tqdm import tqdm
+
+from huggingface_hub import InferenceClient
 
 from src.extract_ship import extract_ship_data
 
@@ -22,15 +30,16 @@ WEAPON_DATA_DIR = f"{DATASET_DIR}/Weapons"
 ENGINEERING_DATA_DIR = f"{DATASET_DIR}/Engineering"
 OUTPUT_DIR = "output"
 
+ELITE_DANGEROUS_VECTOR_DB = "./elite_dangerous_llm_assistant.db"
+COLLECTION_NAME = "rag_collection"
+
 API_KEY = "MISTRAL_API_KEY"
 AI_MODEL = "mistral-small-latest"
 API_KEY_NOT_FOUND_ERROR = "API_KEY_NOT_FOUND_ERROR"
-
-# OPENAI_API_BASE_URL = "http://192.168.50.77:1234/v1"
+ELITE_HF_TOKEN = "ELITE_DANGEROUS_LLM_ASSISTANT_HF_TOKEN"
 
 os.environ[API_KEY] = os.getenv(API_KEY) or API_KEY_NOT_FOUND_ERROR
-# os.environ["OPENAI_API_BASE_URL"] = OPENAI_API_BASE_URL
-# os.environ["OPENAI_API_KEY"] = API_KEY
+os.environ["HF_TOKEN"] = os.getenv(ELITE_HF_TOKEN) or API_KEY_NOT_FOUND_ERROR
 
 # --- Utilities --- #
 def is_dir_empty(path: str) -> bool:
@@ -172,11 +181,159 @@ def transform_ship_data(force=False):
 def transform(force=False): 
     transform_ship_data(force)
 
+# --- Load --- #
+def metadata_extractor(record: dict, metadata: dict) -> dict:
+    # 'record' is the full JSON object for a single line (or the result of the jq_schema)
+    # 'metadata' contains default metadata like 'source' and 'seq_num'
+
+    # Add your custom metadata fields
+    if 'metadata' in record and isinstance(record['metadata'], dict):
+        metadata['entity_name'] = record['metadata'].get('entity_name')
+        metadata['document_type'] = record['metadata'].get('document_type')
+        metadata['chunk_type'] = record['metadata'].get('chunk_type')
+    return metadata
+
+def emb_text(text):
+    embedding_model = SentenceTransformer("BAAI/bge-small-en-v1.5")
+    return embedding_model.encode([text], normalize_embedding=True).tolist()[0]
+
+def load_ships_data(force=False):
+    milvus_client = MilvusClient(uri=ELITE_DANGEROUS_VECTOR_DB)
+    milvus_has_collection = milvus_client.has_collection(COLLECTION_NAME)
+
+    if milvus_has_collection and not force:
+        print("[INFO]: Vector database already created. Skipping ship data loading process.")
+        return
+    elif milvus_has_collection and force:
+        milvus_client.drop_collection(COLLECTION_NAME)
+
+    transformed_data_dir = f"{SHIPS_DATA_DIR}/transformed_data"
+    
+    if is_dir_empty(f"{transformed_data_dir}"):
+        print("[ERROR]: No available extracted ship data to process")
+        return
+    
+    print("[INFO]: Started ship data loading process.")
+
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+
+    milvus_client.create_collection(
+        collection_name=COLLECTION_NAME,
+        dimension=384, # test value for now, need to understand what this value should be.
+        metric_type="IP",
+        consistency_level="Strong"
+    )
+
+    for filename in os.listdir(transformed_data_dir):
+        file_path = os.path.join(transformed_data_dir, filename)
+
+        # Skip directories or non-JSON files
+        if not os.path.isfile(file_path) or not filename.lower().endswith((".json", ".jsonl")):
+            continue
+
+        loader = JSONLoader(
+            file_path=file_path,
+            jq_schema=".",
+            content_key="text",
+            json_lines=True,
+            metadata_func=metadata_extractor
+        )
+
+        docs = loader.load()
+        chunks = text_splitter.split_documents(docs)
+
+        text_lines = [chunk.page_content for chunk in chunks]
+
+        data = []
+        for i, line in enumerate(tqdm(text_lines)):
+            data.append({"id": i, "vector": emb_text(line), "text": line})
+        
+        milvus_client.insert(
+            collection_name=COLLECTION_NAME,
+            data=data
+        )
+
+def load(force=False):
+    load_ships_data(force)
+
+# --- LLM --- #
+def ask_llm(question):
+    milvus_client = MilvusClient(uri=ELITE_DANGEROUS_VECTOR_DB)
+
+    db_search = milvus_client.search(
+        collection_name=COLLECTION_NAME,
+        data=[emb_text(question)],
+        limit=3,
+        search_params={"metric_type": "IP", "params": {}},
+        output_fields=["text"]
+    )
+
+    retrieved_db_search = [(res["entity"]["text"], res["distance"]) for res in db_search[0]]
+
+    context = "\n".join([db_res[0] for db_res in retrieved_db_search])
+    prompt = """
+    Use the following pieces of information enclosed in <context> tags to provide an answer to the question enclosed in <question> tags.
+
+    <context>
+    {context}
+    </context>
+
+    <question>
+    {question}
+    </question>
+    """
+
+    llm = InferenceClient(provider="hf-inference", api_key=os.environ[ELITE_HF_TOKEN])
+    prompt = prompt.format(context=context, question=question)
+
+    completion = llm.chat.completions.create(
+        model="HuggingFaceTB/SmolLM3-3B",
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+    )
+
+    clean_content = re.sub(r'<think>.*?</think>\s*', '', completion.choices[0].message.content, flags=re.DOTALL)
+
+    return clean_content
+
+# --- Chat UI --- #
+def chat_ui():
+    st.title("Elite Dangerous AI Assistant")
+    st.write("This chatbot is there to help you get information about the different ships of Elite Dangerous")
+
+    if 'conversation_history' not in st.session_state:
+        st.session_state.conversation_history = []
+    
+    for message in st.session_state.conversation_history:
+        with st.chat_message("user" if message.startswith("User:") else "assistant"):
+            st.markdown(message.replace("User: ", "").replace("Assistant: ", ""))
+
+    user_query = st.chat_input("Hello commander, how can I help you today?")
+
+    if user_query:
+        with st.chat_message("user"):
+            st.markdown(user_query)
+        
+        st.session_state.conversation_history.append(f"User: {user_query}")
+
+        response = ask_llm(user_query)
+
+        st.session_state.conversation_history.append(f"Assistant: {response}")
+
+        with st.chat_message("assistant"):
+            st.markdown(response)
+
 # --- Main --- #
 def main():
     extract()
     transform()
-    #load()
+    load()
+    chat_ui()
+    # ask_llm("What are the main competitors of the Chieftain?")
 
 if __name__ == "__main__":
     main()

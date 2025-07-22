@@ -8,4 +8,9 @@ output
 CACHEDIR.TAG
 pyvenv.cfg
 
+share
+etc
+
+*.db
+
 src/__pycache__
