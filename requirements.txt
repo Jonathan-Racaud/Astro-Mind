@@ -3,6 +3,7 @@ bs4
 marqo
 langchain
 langchain_mistralai
+langchain_community
 pymilvus
 tqdm
 huggingface_hub
