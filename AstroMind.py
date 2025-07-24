@@ -367,6 +367,8 @@ def get_context_marqo(question):
     return context
 
 def ask_llm(question):
+    context = ""
+    
     if db_used == "milvus":
         context = get_context_milvus(question)
     elif db_used == "marqo":
