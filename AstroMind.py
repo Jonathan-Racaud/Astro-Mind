@@ -428,8 +428,8 @@ def chat_ui():
 def main():
     extract()
     transform()
-    #load_milvus()
-    load_marqo(False)
+    load_milvus()
+    #load_marqo(False)
     chat_ui()
 
 if __name__ == "__main__":
