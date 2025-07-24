@@ -321,10 +321,14 @@ def load_ships_data_marqo(force=False):
 
             mq.index(index).add_documents(ship_document, tensor_fields=["text"], mappings=mappings)
 
+db_used = None
+
 def load_milvus(force=False):
+    db_used = "milvus"
     load_ships_data_milvus(force)
 
 def load_marqo(force=False):
+    db_used = "marqo"
     load_ships_data_marqo(force)
 
 # --- LLM --- #
@@ -363,8 +367,10 @@ def get_context_marqo(question):
     return context
 
 def ask_llm(question):
-    # context = get_context_milvus(question)
-    context = get_context_marqo(question)
+    if db_used == "milvus":
+        context = get_context_milvus(question)
+    elif db_used == "marqo":
+        context = get_context_marqo(question)
 
     prompt = """
     Use the following pieces of information enclosed in <context> tags to provide an answer to the question enclosed in <question> tags.
