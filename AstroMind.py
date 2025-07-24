@@ -257,15 +257,11 @@ def load_ships_data_milvus(force=False):
         )
 
 def load_ships_data_marqo(force=False):
-    if not force: return
-
     transformed_data_dir = f"{SHIPS_DATA_DIR}/transformed_data"
     
     if is_dir_empty(f"{transformed_data_dir}"):
         print("[ERROR]: No available extracted ship data to process")
         return
-    
-    print("[INFO]: Started ship data loading process.")
 
     mq = marqo.Client(url="http://localhost:8882")
 
@@ -284,14 +280,21 @@ def load_ships_data_marqo(force=False):
         }
     }
 
+    index_creation_result = None
     try:
         if mq.get_index(index):
-            mq.delete_index(index)
-            index_creation_result = mq.create_index(index, model=model)
+            if force:
+                mq.delete_index(index)
+                index_creation_result = mq.create_index(index, model=model)
     except MarqoWebError as e:
         if e.code == "index_not_found":
             index_creation_result = mq.create_index(index, model=model)
-    
+
+    if index_creation_result == None:
+        return
+
+    print("[INFO]: Started ship data loading process.")
+
     for filename in os.listdir(transformed_data_dir):
         file_path = os.path.join(transformed_data_dir, filename)
 
@@ -320,8 +323,10 @@ def load_ships_data_marqo(force=False):
                 ship_document.append({"text": text})
 
             mq.index(index).add_documents(ship_document, tensor_fields=["text"], mappings=mappings)
+    
+    print("[INFO]: Ship data loading process complete.")
 
-db_used = None
+db_used = "marqo"
 
 def load_milvus(force=False):
     db_used = "milvus"
@@ -436,8 +441,8 @@ def chat_ui():
 def main():
     extract()
     transform()
-    load_milvus()
-    #load_marqo(False)
+    #load_milvus()
+    load_marqo()
     chat_ui()
 
 if __name__ == "__main__":
