@@ -2,6 +2,9 @@ import os
 import json
 import re
 import streamlit as st
+import marqo
+
+from marqo.errors import MarqoWebError
 
 from dataclasses import asdict
 
@@ -197,7 +200,7 @@ def emb_text(text):
     embedding_model = SentenceTransformer("BAAI/bge-small-en-v1.5")
     return embedding_model.encode([text], normalize_embedding=True).tolist()[0]
 
-def load_ships_data(force=False):
+def load_ships_data_milvus(force=False):
     milvus_client = MilvusClient(uri=ELITE_DANGEROUS_VECTOR_DB)
     milvus_has_collection = milvus_client.has_collection(COLLECTION_NAME)
 
@@ -253,11 +256,79 @@ def load_ships_data(force=False):
             data=data
         )
 
-def load(force=False):
-    load_ships_data(force)
+def load_ships_data_marqo(force=False):
+    if not force: return
+
+    transformed_data_dir = f"{SHIPS_DATA_DIR}/transformed_data"
+    
+    if is_dir_empty(f"{transformed_data_dir}"):
+        print("[ERROR]: No available extracted ship data to process")
+        return
+    
+    print("[INFO]: Started ship data loading process.")
+
+    mq = marqo.Client(url="http://localhost:8882")
+
+    index = "ships"
+    model = "hf/e5-base-v2"
+    # mappings = {
+    #     "entity_name": {"type": "text_field", "language": "en"},
+    #     "document_type": {"type": "text_field", "language": "en"},
+    #     "chunk_type": {"type": "text_field", "language": "en"}
+    # }
+
+    mappings = {
+        "combination_field": {
+            "type": "multimodal_combination",
+            "weights": {"text": 0.8, "metadata": 0.2}
+        }
+    }
+
+    try:
+        if mq.get_index(index):
+            mq.delete_index(index)
+            index_creation_result = mq.create_index(index, model=model)
+    except MarqoWebError as e:
+        if e.code == "index_not_found":
+            index_creation_result = mq.create_index(index, model=model)
+    
+    for filename in os.listdir(transformed_data_dir):
+        file_path = os.path.join(transformed_data_dir, filename)
+
+        # Skip directories or non-JSON files
+        if not os.path.isfile(file_path) or not filename.lower().endswith((".json", ".jsonl")):
+            continue
+
+        with open(file_path, "r") as ship_file:
+            ship_lines = ship_file.readlines()
+
+            ship_document = []
+
+            # I'm only extracting the "text" from the transformed data because I have yet to understand
+            # how to index the metadata with it. Marqo raises an error and asks for mappings, but I do not
+            # understand what exact mapping I need to use. Tried this, but it didn't work:
+            #
+            # mappings = {
+            #     "entity_name": {"type": "text_field", "language": "en"},
+            #     "document_type": {"type": "text_field", "language": "en"},
+            #     "chunk_type": {"type": "text_field", "language": "en"}
+            # } 
+            #
+            # Then called like this: mq.index(index).add_documents(ship_document, tensor_fields=["text"], mappings=mappings)
+            for line in ship_lines:
+                text = json.loads(line)["text"]
+                ship_document.append({"text": text})
+
+            mq.index(index).add_documents(ship_document, tensor_fields=["text"], mappings=mappings)
+
+def load_milvus(force=False):
+    load_ships_data_milvus(force)
+
+def load_marqo(force=False):
+    load_ships_data_marqo(force)
 
 # --- LLM --- #
-def ask_llm(question):
+def get_context_milvus(question):
     milvus_client = MilvusClient(uri=ELITE_DANGEROUS_VECTOR_DB)
 
     db_search = milvus_client.search(
@@ -271,6 +342,30 @@ def ask_llm(question):
     retrieved_db_search = [(res["entity"]["text"], res["distance"]) for res in db_search[0]]
 
     context = "\n".join([db_res[0] for db_res in retrieved_db_search])
+
+    return context
+
+def get_context_marqo(question):
+    mq = marqo.Client(url="http://localhost:8882")
+
+    index = "ships"
+    
+    results = mq.index(index).search(
+        q=question,
+        limit=3
+    )
+
+    context = ""
+    for hit in results["hits"]:
+        text = hit["text"]
+        context += f"{text}\n"
+
+    return context
+
+def ask_llm(question):
+    # context = get_context_milvus(question)
+    context = get_context_marqo(question)
+
     prompt = """
     Use the following pieces of information enclosed in <context> tags to provide an answer to the question enclosed in <question> tags.
 
@@ -281,6 +376,8 @@ def ask_llm(question):
     <question>
     {question}
     </question>
+
+    Also provide the sources used for your answer.
     """
 
     llm = InferenceClient(provider="hf-inference", api_key=os.environ[ELITE_HF_TOKEN])
@@ -331,9 +428,9 @@ def chat_ui():
 def main():
     extract()
     transform()
-    load()
+    #load_milvus()
+    load_marqo(False)
     chat_ui()
-    # ask_llm("What are the main competitors of the Chieftain?")
 
 if __name__ == "__main__":
     main()
