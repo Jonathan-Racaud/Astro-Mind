@@ -2,9 +2,6 @@ import os
 import json
 import re
 import streamlit as st
-import marqo
-
-from marqo.errors import MarqoWebError
 
 from dataclasses import asdict
 
@@ -14,44 +11,22 @@ from langchain.prompts import (
     HumanMessagePromptTemplate,
     ChatPromptTemplate
 )
-from langchain_community.document_loaders import JSONLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-from sentence_transformers import SentenceTransformer
-from pymilvus import MilvusClient
-from tqdm import tqdm
 
 from huggingface_hub import InferenceClient
 
 from src.extract_ship import extract_ship_data
 
-# --- Constants --- #
-DATASET_DIR = "dataset"
-SHIPS_DATA_DIR = f"{DATASET_DIR}/Ships"
-EQUIPMENT_DATA_DIR = f"{DATASET_DIR}/Equipments"
-WEAPON_DATA_DIR = f"{DATASET_DIR}/Weapons"
-ENGINEERING_DATA_DIR = f"{DATASET_DIR}/Engineering"
-OUTPUT_DIR = "output"
+from src.vdb_elite import EliteVectorDB
+from src.vdb_chroma import ChromaVectorDB
+from src.embedder import BAAIEmbedder
 
-ELITE_DANGEROUS_VECTOR_DB = "./elite_dangerous_llm_assistant.db"
-COLLECTION_NAME = "rag_collection"
-
-API_KEY = "MISTRAL_API_KEY"
-AI_MODEL = "mistral-small-latest"
-API_KEY_NOT_FOUND_ERROR = "API_KEY_NOT_FOUND_ERROR"
-ELITE_HF_TOKEN = "ELITE_DANGEROUS_LLM_ASSISTANT_HF_TOKEN"
+from src.constants import *
+from src.utilities import is_dir_empty, normalize_str
 
 os.environ[API_KEY] = os.getenv(API_KEY) or API_KEY_NOT_FOUND_ERROR
 os.environ["HF_TOKEN"] = os.getenv(ELITE_HF_TOKEN) or API_KEY_NOT_FOUND_ERROR
 
-# --- Utilities --- #
-def is_dir_empty(path: str) -> bool:
-    return not os.listdir(path)
-
-def normalize_str(s: str) -> str:
-    return '-'.join(re.sub(r'\W+', ' ', s.lower()).strip().split())
-
-# --- Extraction --- #
+#=== Extract ===#
 def extract_ships_data(force=False):
     raw_data_dir = f"{SHIPS_DATA_DIR}/raw_data"
     extracted_data_dir = f"{SHIPS_DATA_DIR}/extracted_data"
@@ -89,7 +64,7 @@ def extract_ships_data(force=False):
 def extract(force=False):
     extract_ships_data(force)
 
-# --- Transform --- #
+#=== Transform ===#
 def chunkify(json_data):
     # llm = Chat(
     #     api_key=API_KEY,
@@ -184,201 +159,10 @@ def transform_ship_data(force=False):
 def transform(force=False): 
     transform_ship_data(force)
 
-# --- Load --- #
-def metadata_extractor(record: dict, metadata: dict) -> dict:
-    # 'record' is the full JSON object for a single line (or the result of the jq_schema)
-    # 'metadata' contains default metadata like 'source' and 'seq_num'
-
-    # Add your custom metadata fields
-    if 'metadata' in record and isinstance(record['metadata'], dict):
-        metadata['entity_name'] = record['metadata'].get('entity_name')
-        metadata['document_type'] = record['metadata'].get('document_type')
-        metadata['chunk_type'] = record['metadata'].get('chunk_type')
-    return metadata
-
-def emb_text(text):
-    embedding_model = SentenceTransformer("BAAI/bge-small-en-v1.5")
-    return embedding_model.encode([text], normalize_embedding=True).tolist()[0]
-
-def load_ships_data_milvus(force=False):
-    milvus_client = MilvusClient(uri=ELITE_DANGEROUS_VECTOR_DB)
-    milvus_has_collection = milvus_client.has_collection(COLLECTION_NAME)
-
-    if milvus_has_collection and not force:
-        print("[INFO]: Vector database already created. Skipping ship data loading process.")
-        return
-    elif milvus_has_collection and force:
-        milvus_client.drop_collection(COLLECTION_NAME)
-
-    transformed_data_dir = f"{SHIPS_DATA_DIR}/transformed_data"
+#=== Ask ===#
+def ask_llm(vector_db: EliteVectorDB, question: str):
+    context = vector_db.get_context(question)
     
-    if is_dir_empty(f"{transformed_data_dir}"):
-        print("[ERROR]: No available extracted ship data to process")
-        return
-    
-    print("[INFO]: Started ship data loading process.")
-
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-
-    milvus_client.create_collection(
-        collection_name=COLLECTION_NAME,
-        dimension=384, # test value for now, need to understand what this value should be.
-        metric_type="IP",
-        consistency_level="Strong"
-    )
-
-    for filename in os.listdir(transformed_data_dir):
-        file_path = os.path.join(transformed_data_dir, filename)
-
-        # Skip directories or non-JSON files
-        if not os.path.isfile(file_path) or not filename.lower().endswith((".json", ".jsonl")):
-            continue
-
-        loader = JSONLoader(
-            file_path=file_path,
-            jq_schema=".",
-            content_key="text",
-            json_lines=True,
-            metadata_func=metadata_extractor
-        )
-
-        docs = loader.load()
-        chunks = text_splitter.split_documents(docs)
-
-        text_lines = [chunk.page_content for chunk in chunks]
-
-        data = []
-        for i, line in enumerate(tqdm(text_lines)):
-            data.append({"id": i, "vector": emb_text(line), "text": line})
-        
-        milvus_client.insert(
-            collection_name=COLLECTION_NAME,
-            data=data
-        )
-
-def load_ships_data_marqo(force=False):
-    transformed_data_dir = f"{SHIPS_DATA_DIR}/transformed_data"
-    
-    if is_dir_empty(f"{transformed_data_dir}"):
-        print("[ERROR]: No available extracted ship data to process")
-        return
-
-    mq = marqo.Client(url="http://localhost:8882")
-
-    index = "ships"
-    model = "hf/e5-base-v2"
-    # mappings = {
-    #     "entity_name": {"type": "text_field", "language": "en"},
-    #     "document_type": {"type": "text_field", "language": "en"},
-    #     "chunk_type": {"type": "text_field", "language": "en"}
-    # }
-
-    mappings = {
-        "combination_field": {
-            "type": "multimodal_combination",
-            "weights": {"text": 0.8, "metadata": 0.2}
-        }
-    }
-
-    index_creation_result = None
-    try:
-        if mq.get_index(index):
-            if force:
-                mq.delete_index(index)
-                index_creation_result = mq.create_index(index, model=model)
-    except MarqoWebError as e:
-        if e.code == "index_not_found":
-            index_creation_result = mq.create_index(index, model=model)
-
-    if index_creation_result == None:
-        return
-
-    print("[INFO]: Started ship data loading process.")
-
-    for filename in os.listdir(transformed_data_dir):
-        file_path = os.path.join(transformed_data_dir, filename)
-
-        # Skip directories or non-JSON files
-        if not os.path.isfile(file_path) or not filename.lower().endswith((".json", ".jsonl")):
-            continue
-
-        with open(file_path, "r") as ship_file:
-            ship_lines = ship_file.readlines()
-
-            ship_document = []
-
-            # I'm only extracting the "text" from the transformed data because I have yet to understand
-            # how to index the metadata with it. Marqo raises an error and asks for mappings, but I do not
-            # understand what exact mapping I need to use. Tried this, but it didn't work:
-            #
-            # mappings = {
-            #     "entity_name": {"type": "text_field", "language": "en"},
-            #     "document_type": {"type": "text_field", "language": "en"},
-            #     "chunk_type": {"type": "text_field", "language": "en"}
-            # } 
-            #
-            # Then called like this: mq.index(index).add_documents(ship_document, tensor_fields=["text"], mappings=mappings)
-            for line in ship_lines:
-                text = json.loads(line)["text"]
-                ship_document.append({"text": text})
-
-            mq.index(index).add_documents(ship_document, tensor_fields=["text"], mappings=mappings)
-    
-    print("[INFO]: Ship data loading process complete.")
-
-db_used = "marqo"
-
-def load_milvus(force=False):
-    db_used = "milvus"
-    load_ships_data_milvus(force)
-
-def load_marqo(force=False):
-    db_used = "marqo"
-    load_ships_data_marqo(force)
-
-# --- LLM --- #
-def get_context_milvus(question):
-    milvus_client = MilvusClient(uri=ELITE_DANGEROUS_VECTOR_DB)
-
-    db_search = milvus_client.search(
-        collection_name=COLLECTION_NAME,
-        data=[emb_text(question)],
-        limit=3,
-        search_params={"metric_type": "IP", "params": {}},
-        output_fields=["text"]
-    )
-
-    retrieved_db_search = [(res["entity"]["text"], res["distance"]) for res in db_search[0]]
-
-    context = "\n".join([db_res[0] for db_res in retrieved_db_search])
-
-    return context
-
-def get_context_marqo(question):
-    mq = marqo.Client(url="http://localhost:8882")
-
-    index = "ships"
-    
-    results = mq.index(index).search(
-        q=question,
-        limit=3
-    )
-
-    context = ""
-    for hit in results["hits"]:
-        text = hit["text"]
-        context += f"{text}\n"
-
-    return context
-
-def ask_llm(question):
-    context = ""
-    
-    if db_used == "milvus":
-        context = get_context_milvus(question)
-    elif db_used == "marqo":
-        context = get_context_marqo(question)
-
     prompt = """
     Use the following pieces of information enclosed in <context> tags to provide an answer to the question enclosed in <question> tags.
 
@@ -410,8 +194,8 @@ def ask_llm(question):
 
     return clean_content
 
-# --- Chat UI --- #
-def chat_ui():
+#=== Chat UI ===#
+def chat_ui(vector_db):
     st.title("Elite Dangerous AI Assistant")
     st.write("This chatbot is there to help you get information about the different ships of Elite Dangerous")
 
@@ -430,20 +214,29 @@ def chat_ui():
         
         st.session_state.conversation_history.append(f"User: {user_query}")
 
-        response = ask_llm(user_query)
+        response = ask_llm(vector_db, user_query)
 
         st.session_state.conversation_history.append(f"Assistant: {response}")
 
         with st.chat_message("assistant"):
             st.markdown(response)
 
-# --- Main --- #
+#=== Main ===#
 def main():
+    embedder = BAAIEmbedder()
+
+    #--- Extract ---#
     extract()
+
+    #--- Transform ---#
     transform()
-    #load_milvus()
-    load_marqo()
-    chat_ui()
+
+    #--- Load ---#
+    vector_db: EliteVectorDB = ChromaVectorDB(embedder=embedder)
+    vector_db.load()
+
+    #--- Ask ---#
+    chat_ui(vector_db)
 
 if __name__ == "__main__":
     main()
