@@ -1,15 +1,25 @@
+from abc import ABC, abstractmethod
+
 from sentence_transformers import SentenceTransformer
 
-class Embedder:
+class Embedder(ABC):
     def __init__(self):
         return
     
-    def embed_text(self, text):
+    @abstractmethod
+    def embed_text(self, text: str):
+        return
+
+    @abstractmethod
+    def embed_document(self, document: list[str]):
         return
 
 class BAAIEmbedder(Embedder):
     def __init__(self):
         self.model = SentenceTransformer("BAAI/bge-small-en-v1.5")
     
-    def embed_text(self, text):
-        return model.encode([text], normalize_embedding=True).toList[0]
+    def embed_text(self, text: str):
+        return self.model.encode([text], normalize_embedding=True).tolist()
+    
+    def embed_document(self, document: list[str]):
+        self.model.encode(document, normalize_embeddings=True).tolist()

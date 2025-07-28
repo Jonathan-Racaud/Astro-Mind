@@ -5,6 +5,8 @@ import streamlit as st
 
 from dataclasses import asdict
 
+from dotenv import load_dotenv
+
 from langchain_mistralai import ChatMistralAI as Chat
 from langchain.prompts import (
     SystemMessagePromptTemplate,
@@ -22,9 +24,6 @@ from src.embedder import BAAIEmbedder
 
 from src.constants import *
 from src.utilities import is_dir_empty, normalize_str
-
-os.environ[API_KEY] = os.getenv(API_KEY) or API_KEY_NOT_FOUND_ERROR
-os.environ["HF_TOKEN"] = os.getenv(ELITE_HF_TOKEN) or API_KEY_NOT_FOUND_ERROR
 
 #=== Extract ===#
 def extract_ships_data(force=False):
@@ -72,7 +71,14 @@ def chunkify(json_data):
     #     temperature=0.5,
     #     model=AI_MODEL
     # )
-    llm = Chat(temperature=0.5, model=AI_MODEL)
+    api_key = os.getenv(TRANSFORM_LLM_API_KEY)
+    model = os.getenv(TRANSFORM_LLM_MODEL)
+
+    llm = Chat(
+        api_key=api_key,
+        model=model,
+        temperature=0.5
+    )
 
     # This does not work with mistralai/mistral-7b-instruct-v0.3
     system_prompt = SystemMessagePromptTemplate.from_template("""You are an expert in summarizing raw information into natural language.
@@ -161,8 +167,14 @@ def transform(force=False):
 
 #=== Ask ===#
 def ask_llm(vector_db: EliteVectorDB, question: str):
+    provider = os.getenv(INFERENCE_LLM_PROVIDER)
+    api_key = os.getenv(INFERENCE_LLM_API_KEY)
+    model = os.getenv(INFERENCE_LLM_MODEL)
+
     context = vector_db.get_context(question)
-    
+
+    print(context)
+
     prompt = """
     Use the following pieces of information enclosed in <context> tags to provide an answer to the question enclosed in <question> tags.
 
@@ -177,11 +189,15 @@ def ask_llm(vector_db: EliteVectorDB, question: str):
     Also provide the sources used for your answer.
     """
 
-    llm = InferenceClient(provider="hf-inference", api_key=os.environ[ELITE_HF_TOKEN])
+    llm = InferenceClient(
+        provider=provider, 
+        api_key=api_key
+    )
+    
     prompt = prompt.format(context=context, question=question)
 
     completion = llm.chat.completions.create(
-        model="HuggingFaceTB/SmolLM3-3B",
+        model=model,
         messages=[
             {
                 "role": "user",
@@ -221,8 +237,17 @@ def chat_ui(vector_db):
         with st.chat_message("assistant"):
             st.markdown(response)
 
+#=== Setup ===#
+def setup_environment():
+    load_dotenv()
+
+    os.environ["HF_TOKEN"] = os.getenv(EMBEDDER_LLM_API_KEY)
+
 #=== Main ===#
 def main():
+    #--- Setup ---#
+    setup_environment()
+
     embedder = BAAIEmbedder()
 
     #--- Extract ---#

@@ -1,15 +1,19 @@
-class EliteVectorDB:
+from abc import ABC, abstractmethod
+
+class EliteVectorDB(ABC):
     def __init__(self):
         return
 
     def load(self, force=False):
-        load_ships_data(self, force)
+        self.load_ships_data(force)
 
-    def load_ships_data(self, force=False):
+    @abstractmethod
+    def load_ships_data(force=False):
         return
 
     def get_context(self, question: str) -> str:
-        return get_context_for_ships(self, question)
+        return self.get_context_for_ships(question)
 
+    @abstractmethod
     def get_context_for_ships(self, question: str) -> str:
         return ""

@@ -20,13 +20,13 @@ class MilvusVDB(EliteVectorDB):
         self.collection_name = "ships"
 
     def load_ships_data(self, force=False):
-        milvus_has_collection = self.client.has_collection(COLLECTION_NAME)
+        milvus_has_collection = self.client.has_collection(self.collection_name)
 
         if milvus_has_collection and not force:
             print("[INFO]: Vector database already created. Skipping ship data loading process.")
             return
         elif milvus_has_collection and force:
-            self.client.drop_collection(COLLECTION_NAME)
+            self.client.drop_collection(self.collection_name)
 
         transformed_data_dir = f"{SHIPS_DATA_DIR}/transformed_data"
         
@@ -39,7 +39,7 @@ class MilvusVDB(EliteVectorDB):
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
         self.client.create_collection(
-            collection_name=COLLECTION_NAME,
+            collection_name=self.collection_name,
             dimension=384, # test value for now, need to understand what this value should be.
             metric_type="IP",
             consistency_level="Strong"
@@ -70,7 +70,7 @@ class MilvusVDB(EliteVectorDB):
                 data.append({"id": i, "vector": self.embedder.embed_text(line), "text": line})
             
             self.client.insert(
-                collection_name=COLLECTION_NAME,
+                collection_name=self.collection_name,
                 data=data
             )
 
