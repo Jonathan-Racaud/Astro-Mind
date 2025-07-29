@@ -6,11 +6,11 @@ from tqdm import tqdm
 from langchain_community.document_loaders import JSONLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from src.vdb_elite import EliteVectorDB
+from src.vdb import VectorDB
 from src.constants import *
 from src.utilities import is_dir_empty
 
-class MilvusVDB(EliteVectorDB):
+class MilvusVDB(VectorDB):
     def __init__(self, uri, embedder):
         super().__init__()
 

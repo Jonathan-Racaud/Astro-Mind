@@ -19,7 +19,7 @@ class BAAIEmbedder(Embedder):
         self.model = SentenceTransformer("BAAI/bge-small-en-v1.5")
     
     def embed_text(self, text: str):
-        return self.model.encode([text], normalize_embedding=True).tolist()
+        return self.model.encode([text], normalize_embedding=True).tolist()[0]
     
     def embed_document(self, document: list[str]):
-        self.model.encode(document, normalize_embeddings=True).tolist()
+        return self.model.encode(document, normalize_embeddings=True).tolist()

@@ -6,12 +6,12 @@ from tqdm import tqdm
 from langchain_community.document_loaders import JSONLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from src.vdb_elite import EliteVectorDB
+from src.vdb import VectorDB
 from src.embedder import Embedder
 from src.constants import *
 from src.utilities import is_dir_empty
 
-class ChromaVectorDB(EliteVectorDB):
+class ChromaVectorDB(VectorDB):
     def __init__(self, embedder: Embedder):
         super().__init__()
 
@@ -83,10 +83,11 @@ class ChromaVectorDB(EliteVectorDB):
 
         results = collection.query(
             query_embeddings=embeddings,
-            n_results=5
+            n_results=5,
+            include=["documents", "metadatas", "distances"]
         )
         
-        return results["documents"]
+        return results["documents"][0]
 
     def _metadata_extractor(self, record: dict, metadata: dict) -> dict:
         # 'record' is the full JSON object for a single line (or the result of the jq_schema)

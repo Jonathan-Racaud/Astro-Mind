@@ -15,4 +15,4 @@ etc
 
 src/__pycache__
 
-.env
+.env*

@@ -1,6 +1,7 @@
 langchain
 langchain-community
 langchain-mistralai
+langchain-openai
 huggingface_hub
 streamlit
 marqo
@@ -11,3 +12,5 @@ lxml
 bs4
 sentence_transformers
 chromadb
+qdrant-client
+thefuzz

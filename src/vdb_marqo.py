@@ -4,11 +4,11 @@ import json
 
 from marqo.errors import MarqoWebError
 
-from src.vdb_elite import EliteVectorDB
+from src.vdb import VectorDB
 from src.constants import *
 from src.utilities import is_dir_empty
 
-class MarqoVDB(EliteVectorDB):
+class MarqoVDB(VectorDB):
     def __init__(self, uri):
         super().__init__()
 
