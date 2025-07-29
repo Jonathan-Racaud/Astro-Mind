@@ -1,0 +1,11 @@
+- Rework the RAG system and instead of doing HTML -> Structured JSON -> Natural JSONL + metadata, I should do this: 
+  1. Extract natural language paragraphs directly from HTML
+  2. Split them intelligently into semantically coherent chunks (titles, paragraphs, bullet sections)
+  3. Add minimal metadata (e.g., {"ship": "Adder", "source": "in-game wiki"})
+  4. Embed that
+
+  It should have the following improvements:
+  - Recall and precision of retrieval
+  - Reduced need for fuzzy matching or query rewriting
+  - Less post-hoc relevance re-ranking
+  - Lower hallucination rates in answers
