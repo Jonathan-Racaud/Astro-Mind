@@ -14,6 +14,11 @@ class QdrantVectorDB(VectorDB):
         super().__init__(embedder)
         
         self.client = QdrantClient(path=db_path)
+    
+    def close(self):
+        # QdrantClient doesn't have an explicit close method in local mode
+        # but we can set the client to None to release references
+        self.client = None
 
     def init_collection(self, collection_name: str):
         self.client.recreate_collection(
@@ -54,5 +59,3 @@ class QdrantVectorDB(VectorDB):
         )
     
         return [hit.payload["html_snippet"] for hit in search_result]
-
-

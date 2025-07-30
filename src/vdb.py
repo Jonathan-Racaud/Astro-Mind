@@ -14,6 +14,10 @@ class VectorDB(ABC):
         pass
 
     @abstractmethod
+    def close():
+        pass
+
+    @abstractmethod
     def add(chunks: List[ContentChunk], collection_name: str):
         pass
 

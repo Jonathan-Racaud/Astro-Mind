@@ -19,8 +19,8 @@ from src.embedding_pipeline import EmbeddingPipeline
 from src.ships.ships_embedding_pipeline import ShipsEmbeddingPipeline
 
 #=== Ask ===#
-def chat_ui(llm: LLM, vdb: VectorDB):
-    st.title("Elite Dangerous AI Assistant")
+def chat_ui(llm: LLM, vdb: VectorDB, pipelines: List[EmbeddingPipeline]):
+    st.title("Astro Mind")
     st.write("This chatbot is there to help you get information about the different ships of Elite Dangerous")
 
     if 'conversation_history' not in st.session_state:
@@ -38,27 +38,61 @@ def chat_ui(llm: LLM, vdb: VectorDB):
         
         st.session_state.conversation_history.append(f"User: {user_query}")
 
-        context = vdb.search(user_query, SHIPS_COLLECTION_NAME)
+        topic = ""
+        if 'topic' not in st.session_state:
+            topic = llm.ask(
+                user_query,
+                """What ship are they talking about?
+                Reply only with the name of the ship using the following format:
+                
+                The query relates to the ship: <shipname>.
+                
+                Replace <shipname> by the actual shipname the user are talking about.
+                """
+            )
+            st.session_state.topic = topic
+        else:
+            topic = st.session_state.topic
+
+        context = vdb.search(f"{user_query}\n{topic}", SHIPS_COLLECTION_NAME)
+        context.append(topic)
+
         response = llm.ask(context, user_query)
 
         st.session_state.conversation_history.append(f"Assistant: {response}")
 
         with st.chat_message("assistant"):
             st.markdown(response)
+    
+    with st.sidebar:
+        st.header("Debug", divider=True)
+        def run_pipelines():
+            for pipeline in pipelines:
+                result = pipeline.start()
+
+                if result == EmbeddingPipeline.FAILURE:
+                    st.error(f"Failed to embed the dataset")
+        
+        st.button(
+            "Embed documents",
+            on_click=run_pipelines,
+            key="embed_button"
+        )
+        
+        # Add reset button
+        if st.button("⚠️ Reset All Resources", key="reset_button"):
+            # Clear cached resources
+            st.cache_resource.clear()
+            # Close vector database connection
+            if hasattr(vdb, 'close'):
+                vdb.close()
+            # Clear session state
+            st.session_state.clear()
+            # Rerun the app to reinitialize resources
+            st.rerun()
 
 def ui(pipelines: List[EmbeddingPipeline], llm: LLM, vdb: VectorDB):
-    chat_ui(llm, vdb)
-
-    def run_pipelines():
-        for pipeline in pipelines:
-            result = pipeline.start()
-            print(f"{pipeline.name} succeeded: {result}")
-    
-    st.button(
-        "Embed documents", 
-        on_click=run_pipelines
-    )
-    pass
+    chat_ui(llm, vdb, pipelines)
 
 #=== Setup ===#
 def setup_environment():
@@ -71,6 +105,7 @@ def setup_environment():
 
     st.session_state["env_setup"] = True
 
+@st.cache_resource
 def setup_inference_llm():
     inference_llm = LocalLLM(
         provider=os.getenv(INFERENCE_LLM_PROVIDER),
@@ -89,42 +124,37 @@ def setup_inference_llm():
     <question>
     {query}
     </question>
-
-    Also only provide the sources from the context used for your answer.
     """
 
     return inference_llm
 
+@st.cache_resource
 def setup_llm():
-    if "llm_setup" in st.session_state:
-        print("[INFO]: llm already instantiated")
-        return st.session_state["llm_setup"]
-
     inference_llm = setup_inference_llm()
-
-    st.session_state["llm_setup"] = inference_llm
-
     return inference_llm
 
+@st.cache_resource
 def setup_vector_db():
-    if "vector_db_setup" in st.session_state:
-        print("[INFO]: vector db already instantiated")
-        return st.session_state["vector_db_setup"]
-    
     vector_db: VectorDB = QdrantVectorDB(embedder=BAAIEmbedder(), db_path=LOCAL_VECTOR_DB_FILE)
-
-    st.session_state["vector_db_setup"] = vector_db
-
     return vector_db
 
 #=== Main ===#
 def main():
     #--- Setup ---#
     setup_environment()
-    vdb = setup_vector_db()
-    llm = setup_llm()
-
-    print(st.session_state)
+    
+    try:
+        vdb = setup_vector_db()
+        llm = setup_llm()
+    except RuntimeError as e:
+        st.error(f"Resource conflict error: {str(e)}")
+        st.error("Please reset the resources using the 'Reset All Resources' button.")
+        # Show only the reset button
+        if st.button("⚠️ Reset All Resources"):
+            st.cache_resource.clear()
+            st.session_state.clear()
+            st.rerun()
+        return
 
     #--- Embedding ---#
     ships_embedding_pipeline = ShipsEmbeddingPipeline(vdb)
