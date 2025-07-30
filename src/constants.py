@@ -4,7 +4,11 @@ EQUIPMENT_DATA_DIR = f"{DATASET_DIR}/Equipments"
 WEAPON_DATA_DIR = f"{DATASET_DIR}/Weapons"
 ENGINEERING_DATA_DIR = f"{DATASET_DIR}/Engineering"
 
-LOCAL_VECTOR_DB = "./astro-mind-vector.db"
+RAW_DATA_FOLDER_NAME = "raw_data"
+
+SHIPS_COLLECTION_NAME = "ships"
+
+LOCAL_VECTOR_DB_FILE = "./astro-mind-vector.db"
 
 ERROR_ENV_KEY_NOT_FOUND = "ERROR_ENV_KEY_NOT_FOUND"
 

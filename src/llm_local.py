@@ -1,43 +1,30 @@
-from src.llm import LLM
+from openai import OpenAI
 
-from langchain_openai.chat_models import ChatOpenAI as Chat
-from langchain.prompts import (
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate,
-    ChatPromptTemplate
-)
+from src.llm import LLM
 
 class LocalLLM(LLM):
     def __init__(self, provider, api_key, model, url):
         super().__init__(provider, api_key, model, url)
 
-        self.llm = Chat(
-            api_key="lm-studio",
-            model=self.model,
-            base_url=self.url,
-            temperature=0.5
+        self.llm = OpenAI(
+            api_key=self.api_key,
+            base_url=url
         )
 
     def ask(self, context, query):
-        messages = []
-        if isinstance(self.system_prompt, str):
-            messages.append(SystemMessagePromptTemplate.from_template(self.system_prompt))
-        if isinstance(self.user_prompt, str):
-            messages.append(HumanMessagePromptTemplate.from_template(self.user_prompt))
-
-        prompt = ChatPromptTemplate.from_messages(messages)
-
-        chain = (
-            {
-                "context": lambda x: x["context"],
-                "query": lambda x: x["query"]
-            }
-            | prompt
-            | self.llm
-            | { "chunks": lambda x: x.content }
+        prompt = "".join([
+            self.system_prompt or "", 
+            "\n",
+            self.user_prompt or ""]
+        ).format(context=context, query=query)
+        
+        response = self.llm.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.5
         )
 
-        response = chain.invoke({"query": query, "context": context})
-        chunks = response["chunks"]
-
-        return chunks
+        return response.choices[0].message.content

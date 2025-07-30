@@ -1,8 +1,7 @@
-import re
-
 from dataclasses import dataclass
-from typing import Optional, List
-from bs4 import BeautifulSoup
+from typing import List, Optional
+
+from ..html_processor import BaseHTMLProcessor, ContentChunk
 
 NotDefined = "N/A"
 
@@ -54,36 +53,6 @@ class ExtractedShipInfoBox:
     outfitting: Optional[ExtractedShipInfoBoxOutfitting] = None
     hardpoints: Optional[ExtractedShipInfoBoxHardpoints] = None
 
-@dataclass
-class ExtractedShipOutfittingModule:
-    default_system: str = "Empty"
-    default_rating: str = "--"
-    default_class: str = "--"
-    max_class: str = "1"
-
-@dataclass
-class ExtractedShipOutfitting:
-    small_hardpoint: Optional[List[ExtractedShipOutfittingModule]] = None
-    medium_hardpoint: Optional[List[ExtractedShipOutfittingModule]] = None
-    large_hardpoint: Optional[List[ExtractedShipOutfittingModule]] = None
-    utility_mount: Optional[List[ExtractedShipOutfittingModule]] = None
-    bulkhead: Optional[ExtractedShipOutfittingModule] = None
-    reactor_bay: Optional[ExtractedShipOutfittingModule] = None
-    thrusters_mounting: Optional[ExtractedShipOutfittingModule] = None
-    frame_shift_drive_housing: Optional[ExtractedShipOutfittingModule] = None
-    environment_control: Optional[ExtractedShipOutfittingModule] = None
-    power_coupling: Optional[ExtractedShipOutfittingModule] = None
-    sensor_suite: Optional[ExtractedShipOutfittingModule] = None
-    fuel_store: Optional[ExtractedShipOutfittingModule] = None
-    internal_compartments: Optional[List[ExtractedShipOutfittingModule]] = None
-
-@dataclass
-class ExtractedShipData:
-    name: str = NotDefined
-    overview_text: str = NotDefined
-    infobox: Optional[ExtractedShipInfoBox] = None
-    outfitting: Optional[ExtractedShipOutfitting] = None
-
 def has_aside_section(soup, name: str) -> bool:
     return bool(soup.select_one(f"aside section h2:-soup-contains('{name}')"))
 
@@ -108,9 +77,6 @@ def get_value_for_label(soup, label):
             text = "\n".join([v.replace("×", "x") for v in value_divs if v])
             return text
     return NotDefined
-
-def has_section(soup, name: str) -> bool:
-    return bool(soup.select_one(f"h2 span:-soup-contains('{name}')"))
 
 def extract_infobox_overview(soup) -> ExtractedShipInfoBoxOverview:
     overview = ExtractedShipInfoBoxOverview()
@@ -169,107 +135,25 @@ def extract_infobox(soup) -> ExtractedShipInfoBox:
         hardpoints=extract_infobox_hardpoints(soup) if has_aside_section(soup, "Hardpoints") else None
     )
 
-def extract_outfitting_module(row) -> ExtractedShipOutfittingModule:
-    tds = []
-    for td in row.find_all("td"):
-        # Prefer <a> text if present, else td text
-        if td.a:
-            tds.append(td.a.get_text(strip=True))
-        else:
-            tds.append(td.get_text(strip=True))
-    tds = [td for td in tds if td]
+class ShipHTMLProcessor(BaseHTMLProcessor):
+    ENTITY_TYPE = "ship"
     
-    return ExtractedShipOutfittingModule(
-        default_system=tds[1] if len(tds) <= 5 else f"{tds[1]} {tds[2]}",
-        default_rating=tds[2] if len(tds) <= 5 else tds[3],
-        default_class=tds[3] if len(tds) <= 5 else tds[4],
-        max_class=tds[4] if len(tds) <= 5 else tds[5]
-    )
+    def _extract_entity_name(self) -> str:
+        name_element = self.soup.select_one("#firstHeading span")
+        return name_element.get_text(strip=True) if name_element else "Unknown Ship"
 
-def extract_outfitting_list(soup, section_title) -> Optional[List[ExtractedShipOutfittingModule]]:
-    table = soup.select("table.article-table > tbody")[0]
+    def _normalize_section(self, header: str) -> str:
+        header_lower = header.lower()
+        if 'overview' in header_lower: return 'overview'
+        if 'specif' in header_lower: return 'specifications'
+        if 'outfit' in header_lower: return 'outfitting'
+        return 'other'
 
-    modules = []
-
-    def extract_info(row):
-        tds = [td for td in row.find_all("td", recursive=False) if not td.has_attr("rowspan")]
-    
-        modules.append(ExtractedShipOutfittingModule(
-            default_system=tds[0].get_text(), # if len(tds) < 5 else tds[1],
-            default_rating=tds[1].get_text(), # if len(tds) < 5 else tds[2],
-            default_class=tds[2].get_text(), # if len(tds) < 5 else tds[3],
-            max_class=tds[3].get_text(), # if len(tds) < 5 else tds[4]
-        ))
-
-    for row in table.find_all("tr"):
-        td = row.find("td")
-
-        if td and td.has_attr("rowspan"):
-            td_label = td.get_text().rstrip()
-            
-            if td_label == section_title:
-                extract_info(row)
-                siblings = row.find_next_siblings("tr")[0:int(td["rowspan"]) - 1]
-
-                for sibling in siblings:
-                    extract_info(sibling)
-
-    return modules
-
-def extract_outfitting_single(soup, label) -> Optional[ExtractedShipOutfittingModule]:
-    # Find table row with td containing label
-    for table in soup.find_all("table"):
-        for row in table.find_all("tr"):
-            tds = row.find_all("td")
-            if any(label in td.get_text() for td in tds):
-                return extract_outfitting_module(row)
-    return None
-
-def extract_outfitting(soup) -> ExtractedShipOutfitting:
-    return ExtractedShipOutfitting(
-        small_hardpoint=extract_outfitting_list(soup, "Small Hardpoint"),
-        medium_hardpoint=extract_outfitting_list(soup, "Medium Hardpoint"),
-        large_hardpoint=extract_outfitting_list(soup, "Large Hardpoint"),
-        utility_mount=extract_outfitting_list(soup, "Utility Mount"),
-        bulkhead=extract_outfitting_single(soup, "Bulkhead"),
-        reactor_bay=extract_outfitting_single(soup, "Reactor Bay"),
-        thrusters_mounting=extract_outfitting_single(soup, "Thrusters Mounting"),
-        frame_shift_drive_housing=extract_outfitting_single(soup, "Frame Shift Drive Housing"),
-        environment_control=extract_outfitting_single(soup, "Environment Control"),
-        power_coupling=extract_outfitting_single(soup, "Power Coupling"),
-        sensor_suite=extract_outfitting_single(soup, "Sensor Suite"),
-        fuel_store=extract_outfitting_single(soup, "Fuel Store"),
-        internal_compartments=extract_outfitting_list(soup, "Internal Compartments")
-    )
-
-def extract_overview_text(soup) -> str:
-    overview_header = soup.select_one("h2 span:-soup-contains('Overview')").parent
-
-    if not overview_header:
-        return NotDefined
-
-    paragraphs = overview_header.find_next_siblings("p")
-    text = "".join(p.get_text() for p in paragraphs)
-    
-    return text if text != "" else NotDefined
-
-def extract_name(soup) -> str:
-    name = soup.select("#firstHeading")[0].find("span")
-
-    if not name: return NotDefined
-    
-    return name.get_text(strip=True)
-
-def extract_ship_data(raw_html_doc: str) -> ExtractedShipData:
-    soup = BeautifulSoup(raw_html_doc, "html.parser")
-    name_text = extract_name(soup)
-    overview_text = extract_overview_text(soup)
-    infobox = extract_infobox(soup)
-    outfitting = extract_outfitting(soup) if has_section(soup, "Outfitting") else None
-
-    return ExtractedShipData(
-        name=name_text,
-        overview_text=overview_text,
-        infobox=infobox,
-        outfitting=outfitting
-    )
+    def extract_chunks(self) -> List[ContentChunk]:
+        chunks = super().extract_chunks()
+        infobox = extract_infobox(self.soup)
+        
+        for chunk in chunks:
+            if chunk.section_type == 'overview':
+                chunk.infobox = infobox.__dict__ if infobox else None
+        return chunks
