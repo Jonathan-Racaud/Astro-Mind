@@ -2,7 +2,7 @@ from openai import OpenAI
 
 from src.llm import LLM
 
-class LocalLLM(LLM):
+class OpenAILLM(LLM):
     def __init__(self, provider, api_key, model, url):
         super().__init__(provider, api_key, model, url)
 

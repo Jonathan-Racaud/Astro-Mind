@@ -10,9 +10,9 @@ from src.vdb import VectorDB
 from src.vdb_qdrant import QdrantVectorDB
 
 from src.llm import LLM
-from src.llm_local import LocalLLM
+from src.llm_openai import OpenAILLM
 
-from src.embedder import Embedder, BAAIEmbedder
+from src.embedder import BAAIEmbedder
 
 from src.embedding_pipeline import EmbeddingPipeline
 
@@ -107,7 +107,7 @@ def setup_environment():
 
 @st.cache_resource
 def setup_inference_llm():
-    inference_llm = LocalLLM(
+    inference_llm = OpenAILLM(
         provider=os.getenv(INFERENCE_LLM_PROVIDER),
         api_key=os.getenv(INFERENCE_LLM_API_KEY),
         model=os.getenv(INFERENCE_LLM_MODEL),
