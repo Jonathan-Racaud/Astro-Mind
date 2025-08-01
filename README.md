@@ -10,61 +10,55 @@ Astro Mind aims to be your co-pilot in the outfitting bay, context-aware, and co
 
 ---
 
-## ✨ Features
+## Features
 
-### ✅ Currently Implemented
+### Currently Implemented
 
-- 🚀 **LLM-Powered Question Answering (Ships Only)**
+- **LLM-Powered Question Answering (Ships Only)**
   Ask natural-language questions about ships—get detailed descriptions, stats, and comparisons.
 
-- 📚 **RAG-Based Knowledge Retrieval**
+- **RAG-Based Knowledge Retrieval**
   Uses a Retrieval-Augmented Generation system to ground responses in curated, up-to-date wiki data.
 
-- 🧱 **Modular RAG Architecture**
+- **Modular RAG Architecture**
   Built for future extension to equipment, modules, weapons, and third-party integrations.
 
-### 🛠️ Planned Features
+### Planned Features
 
-- 📡 **Real-Time Web Scraping**
+- **Real-Time Web Scraping**
   Automatically fetch the latest data from the Elite Dangerous Fandom Wiki when existing info is outdated or missing.
 
-- 📦 **EDSY.org Integration**  
+- **EDSY.org Integration**  
   Generate `.json` loadout files that can be imported directly into [EDSY.org](https://edsy.org/) for ship build visualization.
 
-- 🧠 **Intention-Based Outfitting Recommendations**  
+- **Intention-Based Outfitting Recommendations**  
   Get suggestions tailored to your ship’s role—combat, mining, exploration, trade, or multi-role builds.
 
-- 🤝 **Third-Party API Support**
+- **Third-Party API Support**
   Interface with community tools and services for enhanced functionality and shared ecosystem support.
 
 ---
 
-## 🧪 Tech Stack
+## Tech Stack
 
 | Layer              | Tools & Frameworks                                      |
 |-------------------|----------------------------------------------------------|
-| **Language Model** | HuggingFace Transformers, Open Source LLMs              |
-| **RAG Framework**  | [LangChain](https://www.langchain.com/)                 |
-| **Vector Store**   | [Marqo](https://marqo.ai/)|
+| **Vector Store**   | [Qdrant](https://qdrant.tech/)|
 | **Data Source**    | Manually scraped from the [Elite Dangerous Fandom Wiki](https://elite-dangerous.fandom.com/wiki/) |
 | **Language**       | Python                                                   |
 
 ---
 
-## 📚 Acknowledgments
+## Acknowledgments
 
 - Elite Dangerous is the sole propriety of Frontier Developments.  
 - Data sources extracted and transformed from the [Elite Dangerous Fandom Wiki](https://elite-dangerous.fandom.com/wiki/Elite_Dangerous_Wiki).  
 
 ---
 
-## 🛰️ License
+## License
 
 This project is currently under development. Licensing terms will be added in a future release.
 
 It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it.
-
----
-
-> *Astro Mind – For the Commander Who Plans Ahead.*
 
