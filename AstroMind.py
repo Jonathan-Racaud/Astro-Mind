@@ -19,6 +19,14 @@ from src.embedding_pipeline import EmbeddingPipeline
 from src.ships.ships_embedding_pipeline import ShipsEmbeddingPipeline
 
 #=== Ask ===#
+@st.cache_resource
+def run_pipelines(_pipelines):
+    for pipeline in _pipelines:
+        result = pipeline.start()
+
+        if result == EmbeddingPipeline.FAILURE:
+            st.error(f"Failed to embed the dataset")
+
 def chat_ui(llm: LLM, vdb: VectorDB, pipelines: List[EmbeddingPipeline]):
     st.title("Astro Mind")
     st.write("This chatbot is there to help you get information about the different ships of Elite Dangerous")
@@ -66,12 +74,6 @@ def chat_ui(llm: LLM, vdb: VectorDB, pipelines: List[EmbeddingPipeline]):
     
     with st.sidebar:
         st.header("Debug", divider=True)
-        def run_pipelines():
-            for pipeline in pipelines:
-                result = pipeline.start()
-
-                if result == EmbeddingPipeline.FAILURE:
-                    st.error(f"Failed to embed the dataset")
         
         st.button(
             "Embed documents",
@@ -158,10 +160,13 @@ def main():
 
     #--- Embedding ---#
     ships_embedding_pipeline = ShipsEmbeddingPipeline(vdb)
+    pipelines = [ships_embedding_pipeline]
+
+    run_pipelines(pipelines)
 
     #--- Ask ---#
     ui(
-        [ships_embedding_pipeline],
+        pipelines,
         llm,
         vdb
     )
