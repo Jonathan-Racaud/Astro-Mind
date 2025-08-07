@@ -55,6 +55,7 @@ class QdrantVectorDB(VectorDB):
         search_result = self.client.search(
             collection_name=collection_name,
             query_vector=query_vector,
+            limit=3,
             with_payload=True
         )
     
